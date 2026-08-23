@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Paddelstrecken Erfassung</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <div class="hero-map-layout">
+            <div>
+              <p class="eyebrow">Paddel-Logbuch</p>
+              <h1>Strecken erfassen, Zeiten berechnen, Gewässer sauber verwalten.</h1>
+              <p class="hero-text">
+                Erfasse deine Touren mit Distanz, Wetter, Temperatur und Wind. Dauer
+                und Geschwindigkeit werden automatisch berechnet.
+              </p>
+              <div class="map-note">
+                Open-Source-Karte mit OpenStreetMap. Die Position wird aus dem
+                Gewässernamen der ausgewählten Strecke ermittelt.
+              </div>
+            </div>
+
+            <div class="map-card">
+              <div class="map-card-header">
+                <p class="eyebrow">Ausgewählte Strecke</p>
+                <strong id="selectedRouteLabel">Noch keine Strecke ausgewählt</strong>
+              </div>
+              <div class="map-frame-wrap">
+                <div id="routeMap"></div>
+                <div id="routeMapPlaceholder" class="map-placeholder">
+                  Wähle unten eine Strecke aus, damit das zugehörige Gewässer auf der Karte angezeigt wird.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hero-stats">
+          <div class="stat-card stat-card-routes">
+            <span id="tourCount">0</span>
+            <p>Gespeicherte Strecken</p>
+          </div>
+          <div class="stat-card stat-card-waters">
+            <span id="waterCount">0</span>
+            <p>Gewässer in deiner Liste</p>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Tour</p>
+              <h2>Neue Paddelstrecke</h2>
+            </div>
+          </div>
+
+          <form id="routeForm" class="form-grid">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" required />
+            </label>
+
+            <label>
+              <span>Distanz in km</span>
+              <input type="number" name="distance" min="0" step="0.1" required />
+            </label>
+
+            <label>
+              <span>Startzeit</span>
+              <input type="datetime-local" name="startTime" required />
+            </label>
+
+            <label>
+              <span>Endzeit</span>
+              <input type="datetime-local" name="endTime" required />
+            </label>
+
+            <label>
+              <span>Zeit</span>
+              <input type="text" name="duration" readonly placeholder="wird berechnet" />
+            </label>
+
+            <label>
+              <span>Geschw. in km/h</span>
+              <input type="text" name="speed" readonly placeholder="wird berechnet" />
+            </label>
+
+            <label>
+              <span>Temperatur in °C</span>
+              <input type="number" name="temperature" step="0.1" />
+            </label>
+
+            <label>
+              <span>Gewässer</span>
+              <select name="waterBody" id="waterBodySelect" required>
+                <option value="">Bitte auswählen</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Wetter</span>
+              <select name="weather" required>
+                <option value="">Bitte auswählen</option>
+                <option>Regen</option>
+                <option>Sonne</option>
+                <option>Gewitter</option>
+                <option>Nebel</option>
+                <option>leicht Bewölkt</option>
+                <option>Bewölkt</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Wind</span>
+              <input type="text" name="wind" placeholder="z. B. 12 km/h aus NW" />
+            </label>
+
+            <div class="form-actions">
+              <button type="submit" class="primary">Strecke speichern</button>
+              <button type="reset" class="secondary">Formular leeren</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Gewässer</p>
+              <h2>Liste pflegen</h2>
+            </div>
+          </div>
+
+          <form id="waterForm" class="form-grid compact">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" required />
+            </label>
+
+            <label>
+              <span>Land</span>
+              <input type="text" name="country" required />
+            </label>
+
+            <label>
+              <span>Typ</span>
+              <select name="type" required>
+                <option value="">Bitte auswählen</option>
+                <option>See</option>
+                <option>Fluss</option>
+                <option>WWFluss</option>
+                <option>Meer-Küste</option>
+                <option>Fjord</option>
+                <option>Kanal</option>
+                <option>Regattastrecke</option>
+              </select>
+            </label>
+
+            <div class="form-actions">
+              <button type="submit" class="primary">Gewässer speichern</button>
+              <button type="reset" class="secondary">Formular leeren</button>
+            </div>
+          </form>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Land</th>
+                  <th>Typ</th>
+                  <th></th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="waterTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel full-width">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Historie</p>
+              <h2>Erfasste Strecken</h2>
+            </div>
+          </div>
+
+          <form id="routeFilterForm" class="filter-bar">
+            <label>
+              <span>Suche</span>
+              <input
+                type="search"
+                name="query"
+                placeholder="Name, Wind, Gewässer oder Wetter"
+              />
+            </label>
+
+            <label>
+              <span>Wetter filtern</span>
+              <select name="weather">
+                <option value="">Alle Wetterlagen</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Gewässer filtern</span>
+              <select name="waterBody">
+                <option value="">Alle Gewässer</option>
+              </select>
+            </label>
+
+            <div class="filter-actions">
+              <button type="reset" class="secondary">Filter zurücksetzen</button>
+            </div>
+          </form>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Distanz</th>
+                  <th>Start</th>
+                  <th>Ende</th>
+                  <th>Zeit</th>
+                  <th>Geschwindigkeit</th>
+                  <th>Temperatur</th>
+                  <th>Gewässer</th>
+                  <th>Wetter</th>
+                  <th>Wind</th>
+                  <th></th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="routeTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="emptyStateTemplate">
+      <tr class="empty-row">
+        <td colspan="99">Noch keine Einträge vorhanden.</td>
+      </tr>
+    </template>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="app.js"></script>
+  </body>
+</html>
