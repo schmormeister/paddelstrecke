@@ -41,6 +41,10 @@ Diese Routen liefert der lokale Webserver für das Frontend aus:
   Startseite der Anwendung
 - `GET /index.html`
   HTML-Datei der Anwendung
+- `GET /gpx-editor.html`
+  GPX-Zeit-Editor zum lokalen Entfernen von Trackpunkt-Zeiträumen
+- `GET /track-analyse.html`
+  Track-Analyse mit Karte, Geschwindigkeitschart und Kennzahlen
 - `GET /styles.css`
   Stylesheet
 - `GET /app.js`

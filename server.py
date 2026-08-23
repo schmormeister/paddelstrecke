@@ -15,6 +15,8 @@ PORT = 3000
 STATIC_FILES = {
     "/": "index.html",
     "/index.html": "index.html",
+    "/gpx-editor.html": "gpx-editor.html",
+    "/track-analyse.html": "track-analyse.html",
     "/styles.css": "styles.css",
     "/app.js": "app.js",
 }
