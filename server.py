@@ -4,7 +4,7 @@ import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,6 +25,7 @@ CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
+    ".gpx": "application/gpx+xml; charset=utf-8",
 }
 
 DEFAULT_WATERS = [
@@ -67,6 +68,11 @@ def init_db():
             );
             """
         )
+        route_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(routes)").fetchall()
+        }
+        if "track_file" not in route_columns:
+            connection.execute("ALTER TABLE routes ADD COLUMN track_file TEXT")
 
         water_count = connection.execute("SELECT COUNT(*) FROM waters").fetchone()[0]
         if water_count == 0:
@@ -108,6 +114,31 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
 
+        if path == "/api/tracks":
+            tracks = [
+                {
+                    "name": track.name,
+                    "url": f"/api/tracks/{track.name}",
+                }
+                for track in sorted((BASE_DIR / "daten").glob("*.gpx"), key=lambda item: item.name.lower())
+                if track.is_file()
+            ]
+            self.send_json(tracks)
+            return
+
+        if path.startswith("/api/tracks/"):
+            track_path = self.track_path(path.rsplit("/", 1)[-1])
+            if not track_path:
+                self.send_error(HTTPStatus.NOT_FOUND, "Track nicht gefunden")
+                return
+            content = track_path.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", CONTENT_TYPES[".gpx"])
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
         if path == "/api/waters":
             with get_db() as connection:
                 rows = connection.execute(
@@ -121,7 +152,7 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
                 rows = connection.execute(
                     """
                     SELECT id, name, distance_km, start_time, end_time, duration, speed,
-                           temperature_c, water_body, weather, wind
+                              temperature_c, water_body, weather, wind, track_file
                     FROM routes
                     ORDER BY start_time DESC, name COLLATE NOCASE
                     """
@@ -248,8 +279,8 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
                 """
                 INSERT INTO routes (
                     id, name, distance_km, start_time, end_time, duration, speed,
-                    temperature_c, water_body, weather, wind
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    temperature_c, water_body, weather, wind, track_file
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     route["id"],
@@ -263,6 +294,7 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
                     route["water_body"],
                     route["weather"],
                     route["wind"],
+                    route["track_file"],
                 ),
             )
 
@@ -278,6 +310,7 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
                 UPDATE routes
                 SET name = ?, distance_km = ?, start_time = ?, end_time = ?, duration = ?,
                     speed = ?, temperature_c = ?, water_body = ?, weather = ?, wind = ?
+                    , track_file = ?
                 WHERE id = ?
                 """,
                 (
@@ -291,6 +324,7 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
                     route["water_body"],
                     route["weather"],
                     route["wind"],
+                    route["track_file"],
                     route["id"],
                 ),
             )
@@ -316,7 +350,11 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
             "water_body": self.require_text(payload, "water_body"),
             "weather": self.require_text(payload, "weather"),
             "wind": str(payload.get("wind") or "").strip(),
+            "track_file": str(payload.get("track_file") or "").strip() or None,
         }
+
+        if route["track_file"] and (not self.track_path(route["track_file"])):
+            raise ValueError("Der ausgewählte Track existiert nicht.")
 
         temperature = payload.get("temperature_c")
         route["temperature_c"] = float(temperature) if temperature not in (None, "", "null") else None
@@ -331,6 +369,13 @@ class PaddleRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("Das ausgewählte Gewässer existiert nicht.")
 
         return route
+
+    def track_path(self, file_name):
+        file_name = unquote(file_name)
+        if not file_name or Path(file_name).name != file_name or Path(file_name).suffix.lower() != ".gpx":
+            return None
+        track_path = BASE_DIR / "daten" / file_name
+        return track_path if track_path.is_file() else None
 
     def require_text(self, payload, key):
         value = payload.get(key)

@@ -79,6 +79,21 @@
 
           <form id="routeForm" class="form-grid">
             <label>
+              <span>Erfassung</span>
+              <select name="entryMode" id="entryMode">
+                <option value="manual">Werte manuell eingeben</option>
+                <option value="track">Track aus Daten laden</option>
+              </select>
+            </label>
+
+            <label id="trackChoice" hidden>
+              <span>Track</span>
+              <select name="trackFile" id="trackFile">
+                <option value="">Bitte auswählen</option>
+              </select>
+            </label>
+
+            <label>
               <span>Name</span>
               <input type="text" name="name" required />
             </label>
@@ -242,15 +257,16 @@
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Distanz</th>
+                  <th>km</th>
                   <th>Start</th>
                   <th>Ende</th>
-                  <th>Zeit</th>
-                  <th>Geschwindigkeit</th>
-                  <th>Temperatur</th>
+                  <th>Zeit/h</th>
+                  <th>km/h</th>
+                  <th>°C</th>
                   <th>Gewässer</th>
                   <th>Wetter</th>
                   <th>Wind</th>
+                  <th>Track</th>
                   <th></th>
                   <th></th>
                 </tr>

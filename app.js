@@ -33,6 +33,9 @@ const waterCount = document.querySelector("#waterCount");
 const routeMapContainer = document.querySelector("#routeMap");
 const routeMapPlaceholder = document.querySelector("#routeMapPlaceholder");
 const selectedRouteLabel = document.querySelector("#selectedRouteLabel");
+const entryMode = document.querySelector("#entryMode");
+const trackChoice = document.querySelector("#trackChoice");
+const trackFile = document.querySelector("#trackFile");
 
 let waters = [];
 let routes = [];
@@ -42,6 +45,7 @@ let selectedRouteId = null;
 let geocodeCache = loadObjectStorage(STORAGE_KEYS.geocodeCache, {});
 let routeMap = null;
 let routeMarker = null;
+let tracks = [];
 
 function loadObjectStorage(key, fallback) {
   const rawValue = localStorage.getItem(key);
@@ -94,13 +98,59 @@ async function apiFetch(path, options = {}) {
 }
 
 async function loadData() {
-  const [waterData, routeData] = await Promise.all([
+  const [waterData, routeData, trackData] = await Promise.all([
     apiFetch("/api/waters"),
     apiFetch("/api/routes"),
+    apiFetch("/api/tracks"),
   ]);
 
   waters = waterData;
   routes = routeData;
+  tracks = trackData;
+  trackFile.replaceChildren(new Option("Bitte auswählen", ""), ...tracks.map((track) => new Option(track.name, track.name)));
+}
+
+function calculateTrackValues(source) {
+  const xml = new DOMParser().parseFromString(source, "application/xml");
+  if (xml.querySelector("parsererror") || xml.documentElement?.localName !== "gpx") {
+    throw new Error("Keine gültige GPX-Datei.");
+  }
+  const points = [...xml.getElementsByTagNameNS("*", "trkpt")];
+  const timed = points.map((point) => ({
+    point,
+    date: new Date(point.getElementsByTagNameNS("*", "time")[0]?.textContent.trim()),
+  })).filter(({ date }) => Number.isFinite(date.valueOf()));
+  if (points.length < 2 || timed.length !== points.length || timed.length < 2) {
+    throw new Error("Der Track enthält keine ausreichenden Zeitstempel.");
+  }
+  const radians = (value) => value * Math.PI / 180;
+  const distanceBetween = (first, second) => {
+    const lat1 = Number(first.getAttribute("lat"));
+    const lon1 = Number(first.getAttribute("lon"));
+    const lat2 = Number(second.getAttribute("lat"));
+    const lon2 = Number(second.getAttribute("lon"));
+    const dLat = radians(lat2 - lat1);
+    const dLon = radians(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+  const distance = points.slice(1).reduce((sum, point, index) => sum + distanceBetween(points[index], point), 0);
+  const durationMs = timed.at(-1).date - timed[0].date;
+  const duration = formatDuration(timed[0].date.toISOString(), timed.at(-1).date.toISOString());
+  const speed = calculateSpeed(distance, timed[0].date.toISOString(), timed.at(-1).date.toISOString());
+  return { distance, duration, speed, start: timed[0].date, end: timed.at(-1).date, durationMs };
+}
+
+async function loadTrackIntoForm(fileName) {
+  if (!fileName) return;
+  const response = await fetch(`/api/tracks/${encodeURIComponent(fileName)}`);
+  if (!response.ok) throw new Error("Der Track konnte nicht geladen werden.");
+  const values = calculateTrackValues(await response.text());
+  routeForm.elements.distance.value = values.distance.toFixed(1);
+  routeForm.elements.startTime.value = values.start.toISOString().slice(0, 16);
+  routeForm.elements.endTime.value = values.end.toISOString().slice(0, 16);
+  routeForm.elements.duration.value = values.duration;
+  routeForm.elements.speed.value = values.speed;
 }
 
 function formatDuration(start, end) {
@@ -112,7 +162,7 @@ function formatDuration(start, end) {
   const totalMinutes = Math.floor(diffMs / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")} h`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function calculateSpeed(distance, start, end) {
@@ -123,7 +173,7 @@ function calculateSpeed(distance, start, end) {
   }
 
   const hours = diffMs / 3600000;
-  return `${(distanceValue / hours).toFixed(2)} km/h`;
+  return `${(distanceValue / hours).toFixed(2)}`;
 }
 
 function formatDateTime(value) {
@@ -401,15 +451,16 @@ function renderRoutes() {
       return `
         <tr class="route-row ${route.id === selectedRouteId ? "is-selected" : ""}" data-select-route="${route.id}">
           <td>${escapeHtml(route.name)}</td>
-          <td>${escapeHtml(route.distance_km)} km</td>
+          <td>${escapeHtml(route.distance_km)}</td>
           <td>${escapeHtml(formatDateTime(route.start_time))}</td>
           <td>${escapeHtml(formatDateTime(route.end_time))}</td>
           <td>${escapeHtml(route.duration)}</td>
           <td>${escapeHtml(route.speed)}</td>
-          <td>${route.temperature_c === null ? "-" : `${escapeHtml(route.temperature_c)} °C`}</td>
+          <td>${route.temperature_c === null ? "-" : `${escapeHtml(route.temperature_c)}`}</td>
           <td>${escapeHtml(waterLabel)}</td>
           <td>${escapeHtml(route.weather)}</td>
           <td>${escapeHtml(route.wind || "-")}</td>
+          <td>${route.track_file ? `<a href="/track-analyse.html?track=${encodeURIComponent(route.track_file)}">${escapeHtml(route.track_file)}</a>` : "-"}</td>
           <td><button class="secondary" type="button" data-edit-route="${route.id}">Bearbeiten</button></td>
           <td><button class="icon-button" type="button" data-delete-route="${route.id}">Löschen</button></td>
         </tr>
@@ -450,6 +501,9 @@ function fillRouteForm(route) {
   routeForm.elements.waterBody.value = route.water_body ?? "";
   routeForm.elements.weather.value = route.weather;
   routeForm.elements.wind.value = route.wind ?? "";
+  entryMode.value = route.track_file ? "track" : "manual";
+  trackChoice.hidden = !route.track_file;
+  trackFile.value = route.track_file ?? "";
   updateCalculatedFields();
 }
 
@@ -499,6 +553,17 @@ async function refreshAndRender() {
 
 routeForm.addEventListener("input", updateCalculatedFields);
 routeForm.addEventListener("change", updateCalculatedFields);
+entryMode.addEventListener("change", () => {
+  trackChoice.hidden = entryMode.value !== "track";
+  if (entryMode.value === "manual") trackFile.value = "";
+});
+trackFile.addEventListener("change", async () => {
+  try {
+    await loadTrackIntoForm(trackFile.value);
+  } catch (error) {
+    window.alert(error.message);
+  }
+});
 
 routeForm.addEventListener("reset", () => {
   requestAnimationFrame(() => {
@@ -535,7 +600,13 @@ routeForm.addEventListener("submit", async (event) => {
     water_body: formData.get("waterBody"),
     weather: formData.get("weather"),
     wind: formData.get("wind").trim(),
+    track_file: entryMode.value === "track" ? formData.get("trackFile") : null,
   };
+
+  if (entryMode.value === "track" && !routePayload.track_file) {
+    window.alert("Bitte einen Track auswählen.");
+    return;
+  }
 
   try {
     if (currentRouteEditId) {
