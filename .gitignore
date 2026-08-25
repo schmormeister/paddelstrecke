@@ -1,0 +1,5 @@
+# GPX-Trackdateien aus dem Datenverzeichnis
+/daten/*.gpx
+
+# Lokale SQLite-Datenbanken
+*.db
