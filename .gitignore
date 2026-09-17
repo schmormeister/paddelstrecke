@@ -3,3 +3,5 @@
 
 # Lokale SQLite-Datenbanken
 *.db
+
+/_pycache__/

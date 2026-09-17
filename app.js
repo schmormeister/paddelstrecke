@@ -26,10 +26,15 @@ const waterForm = document.querySelector("#waterForm");
 const waterBodySelect = document.querySelector("#waterBodySelect");
 const routeFilterForm = document.querySelector("#routeFilterForm");
 const waterTableBody = document.querySelector("#waterTableBody");
+const waterTableWrap = document.querySelector("#waterTableWrap");
+const waterTableToggle = document.querySelector("#waterTableToggle");
 const routeTableBody = document.querySelector("#routeTableBody");
+const routeTagCloud = document.querySelector("#routeTagCloud");
+const waterTagCloud = document.querySelector("#waterTagCloud");
 const emptyStateTemplate = document.querySelector("#emptyStateTemplate");
 const tourCount = document.querySelector("#tourCount");
 const waterCount = document.querySelector("#waterCount");
+const routeDistanceTotal = document.querySelector("#routeDistanceTotal");
 const routeMapContainer = document.querySelector("#routeMap");
 const routeMapPlaceholder = document.querySelector("#routeMapPlaceholder");
 const selectedRouteLabel = document.querySelector("#selectedRouteLabel");
@@ -42,6 +47,7 @@ let routes = [];
 let currentRouteEditId = null;
 let currentWaterEditId = null;
 let selectedRouteId = null;
+let showAllWaters = false;
 let geocodeCache = loadObjectStorage(STORAGE_KEYS.geocodeCache, {});
 let routeMap = null;
 let routeMarker = null;
@@ -375,10 +381,47 @@ function renderRouteFilterWaterOptions() {
   }
 }
 
+function getMonthLabel(monthIndex) {
+  return new Intl.DateTimeFormat("de-DE", { month: "long" }).format(new Date(2024, monthIndex, 1));
+}
+
+function populateRouteDateFilters() {
+  const yearSelect = routeFilterForm.elements.year;
+  const monthSelect = routeFilterForm.elements.month;
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth();
+
+  const years = [...new Set(routes.map((route) => {
+    const date = route.start_time ? new Date(route.start_time) : null;
+    return date && Number.isFinite(date.valueOf()) ? date.getFullYear() : null;
+  }).filter((value) => value !== null))].sort((a, b) => b - a);
+
+  yearSelect.innerHTML = '<option value="">Alle Jahre</option>' + years.map((year) => `<option value="${year}">${year}</option>`).join("");
+
+  monthSelect.innerHTML = '<option value="">Alle Monate</option>' + Array.from({ length: 12 }, (_, index) => `
+    <option value="${index}">${getMonthLabel(index)}</option>
+  `).join("");
+
+  const defaultYear = yearSelect.value || String(currentYear);
+  const defaultMonth = monthSelect.value || String(currentMonth);
+  yearSelect.value = defaultYear;
+  monthSelect.value = defaultMonth;
+
+  if (!yearSelect.value) {
+    yearSelect.value = String(currentYear);
+  }
+  if (!monthSelect.value) {
+    monthSelect.value = String(currentMonth);
+  }
+}
+
 function getFilteredRoutes() {
   const query = routeFilterForm.elements.query.value.trim().toLowerCase();
   const weatherFilter = routeFilterForm.elements.weather.value;
   const waterFilter = routeFilterForm.elements.waterBody.value;
+  const yearFilter = routeFilterForm.elements.year.value;
+  const monthFilter = routeFilterForm.elements.month.value;
 
   return routes.filter((route) => {
     const water = waters.find((entry) => entry.id === route.water_body);
@@ -394,24 +437,38 @@ function getFilteredRoutes() {
       .join(" ")
       .toLowerCase();
 
+    const routeDate = route.start_time ? new Date(route.start_time) : null;
     const matchesQuery = !query || haystack.includes(query);
     const matchesWeather = !weatherFilter || route.weather === weatherFilter;
     const matchesWater = !waterFilter || route.water_body === waterFilter;
+    const matchesYear = !yearFilter || (routeDate && Number.isFinite(routeDate.valueOf()) && routeDate.getFullYear() === Number(yearFilter));
+    const matchesMonth = !monthFilter || (routeDate && Number.isFinite(routeDate.valueOf()) && routeDate.getMonth() === Number(monthFilter));
 
-    return matchesQuery && matchesWeather && matchesWater;
+    return matchesQuery && matchesWeather && matchesWater && matchesYear && matchesMonth;
   });
 }
 
 function renderWaters() {
-  if (waters.length === 0) {
+  const sortedWaters = waters
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const visibleWaters = showAllWaters ? sortedWaters : sortedWaters.slice(0, 6);
+
+  if (sortedWaters.length === 0) {
     renderEmptyState(waterTableBody);
+    if (waterTableToggle) {
+      waterTableToggle.hidden = true;
+    }
+    if (waterTableWrap) {
+      waterTableWrap.classList.remove("is-expanded");
+    }
     updateStats();
     renderWaterSelect();
     renderRouteFilterWaterOptions();
     return;
   }
 
-  waterTableBody.innerHTML = waters
+  waterTableBody.innerHTML = visibleWaters
     .map(
       (water) => `
         <tr>
@@ -425,17 +482,108 @@ function renderWaters() {
     )
     .join("");
 
+  if (waterTableToggle) {
+    waterTableToggle.hidden = sortedWaters.length <= 6;
+    waterTableToggle.textContent = showAllWaters ? "weniger anzeigen" : "alle anzeigen";
+  }
+
+  if (waterTableWrap) {
+    waterTableWrap.classList.toggle("is-expanded", showAllWaters && sortedWaters.length > 6);
+  }
+
   renderWaterSelect();
   renderRouteFilterWaterOptions();
   updateStats();
 }
 
+function renderRouteTagCloud() {
+  if (!routeTagCloud) {
+    return;
+  }
+
+  if (routes.length === 0) {
+    routeTagCloud.innerHTML = '<span class="route-tag-empty">Noch keine Strecken</span>';
+    return;
+  }
+
+  const recentRoutes = routes
+    .slice()
+    .sort((a, b) => {
+      const left = new Date(a.start_time || 0).getTime();
+      const right = new Date(b.start_time || 0).getTime();
+      return right - left || a.name.localeCompare(b.name, "de");
+    })
+    .slice(0, 6);
+
+  routeTagCloud.innerHTML = recentRoutes
+    .map((route, index) => {
+      const baseSize = 1.0 + (index % 4) * 0.08;
+      const lengthPenalty = Math.min(route.name.length / 42, 0.28);
+      const size = baseSize - lengthPenalty;
+      return `
+        <a
+          href="#route-${route.id}"
+          class="${route.id === selectedRouteId ? "is-active" : ""}"
+          data-select-route-link="${route.id}"
+          style="font-size: ${Math.max(size, 0.9).toFixed(2)}rem;"
+        >${escapeHtml(route.name)}</a>
+      `;
+    })
+    .join("");
+}
+
+function renderWaterTagCloud() {
+  if (!waterTagCloud) {
+    return;
+  }
+
+  if (waters.length === 0) {
+    waterTagCloud.innerHTML = '<span class="water-tag-empty">Noch keine Gewässer</span>';
+    waterTagCloud.classList.remove("is-expanded");
+    return;
+  }
+
+  const currentWaterFilter = routeFilterForm.elements.waterBody.value;
+  const sortedWaters = waters
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const visibleWaters = showAllWaters ? sortedWaters : sortedWaters.slice(0, 6);
+
+  waterTagCloud.innerHTML = [
+    visibleWaters
+      .map((water, index) => {
+        const size = 0.9 + (index % 4) * 0.14 + Math.min(water.name.length / 30, 0.35);
+        return `
+          <a
+            href="#water-${water.id}"
+            class="${water.id === currentWaterFilter ? "is-active" : ""}"
+            data-select-water-link="${water.id}"
+            style="font-size: ${size.toFixed(2)}rem;"
+          >${escapeHtml(water.name)}</a>
+        `;
+      })
+      .join(""),
+    !showAllWaters && sortedWaters.length > 6
+      ? '<button type="button" class="tag-cloud-toggle" data-toggle-water-cloud>alle anzeigen</button>'
+      : "",
+  ].join("");
+
+  waterTagCloud.classList.toggle("is-expanded", showAllWaters && sortedWaters.length > 6);
+}
+
 function renderRoutes() {
   const filteredRoutes = getFilteredRoutes();
+  const totalDistance = filteredRoutes.reduce((sum, route) => sum + (Number(route.distance_km) || 0), 0);
+  routeDistanceTotal.textContent = `${totalDistance.toLocaleString("de-DE", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} km`;
   syncSelectedRoute();
 
   if (filteredRoutes.length === 0) {
     renderEmptyState(routeTableBody);
+    renderRouteTagCloud();
+    renderWaterTagCloud();
     updateStats();
     updateMapCard();
     return;
@@ -449,7 +597,7 @@ function renderRoutes() {
         : "nicht mehr vorhanden";
 
       return `
-        <tr class="route-row ${route.id === selectedRouteId ? "is-selected" : ""}" data-select-route="${route.id}">
+        <tr id="route-${route.id}" class="route-row ${route.id === selectedRouteId ? "is-selected" : ""}" data-select-route="${route.id}">
           <td>${escapeHtml(route.name)}</td>
           <td>${escapeHtml(route.distance_km)}</td>
           <td>${escapeHtml(formatDateTime(route.start_time))}</td>
@@ -468,6 +616,8 @@ function renderRoutes() {
     })
     .join("");
 
+  renderRouteTagCloud();
+  renderWaterTagCloud();
   updateStats();
   updateMapCard();
 }
@@ -547,6 +697,7 @@ function ensureWeatherAndTypeOptions() {
 
 async function refreshAndRender() {
   await loadData();
+  populateRouteDateFilters();
   renderWaters();
   renderRoutes();
 }
@@ -676,6 +827,9 @@ routeFilterForm.addEventListener("change", () => {
 
 routeFilterForm.addEventListener("reset", () => {
   requestAnimationFrame(() => {
+    const now = new Date();
+    routeFilterForm.elements.year.value = String(now.getFullYear());
+    routeFilterForm.elements.month.value = String(now.getMonth());
     renderRoutes();
   });
 });
@@ -710,6 +864,70 @@ waterTableBody.addEventListener("click", async (event) => {
     await refreshAndRender();
   } catch (error) {
     window.alert(error.message);
+  }
+});
+
+routeTagCloud.addEventListener("click", (event) => {
+  const tagLink = event.target.closest("[data-select-route-link]");
+  if (!tagLink) {
+    return;
+  }
+
+  event.preventDefault();
+  const routeId = tagLink.dataset.selectRouteLink;
+  const isCurrentlySelected = selectedRouteId === routeId;
+
+  selectedRouteId = isCurrentlySelected ? null : routeId;
+  renderRoutes();
+
+  if (isCurrentlySelected) {
+    return;
+  }
+
+  const routeRow = document.querySelector(`#route-${routeId}`);
+  if (routeRow) {
+    routeRow.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
+
+waterTableToggle.addEventListener("click", () => {
+  showAllWaters = !showAllWaters;
+  renderWaters();
+  renderWaterTagCloud();
+});
+
+waterTagCloud.addEventListener("click", (event) => {
+  const toggleButton = event.target.closest("[data-toggle-water-cloud]");
+  if (toggleButton) {
+    event.preventDefault();
+    showAllWaters = true;
+    renderWaters();
+    renderWaterTagCloud();
+    return;
+  }
+
+  const tagLink = event.target.closest("[data-select-water-link]");
+  if (!tagLink) {
+    return;
+  }
+
+  event.preventDefault();
+  const waterId = tagLink.dataset.selectWaterLink;
+  const isCurrentlySelected = routeFilterForm.elements.waterBody.value === waterId;
+
+  routeFilterForm.elements.waterBody.value = isCurrentlySelected ? "" : waterId;
+  renderRoutes();
+  renderWaterTagCloud();
+
+  if (isCurrentlySelected) {
+    return;
+  }
+
+  const routeRows = [...document.querySelectorAll("[data-select-route]")];
+  const firstVisibleRoute = routeRows.find((row) => row.closest("tr") && row.closest("tr").dataset.selectRoute);
+  if (firstVisibleRoute) {
+    selectedRouteId = firstVisibleRoute.dataset.selectRoute;
+    renderRoutes();
   }
 });
 
@@ -758,6 +976,12 @@ async function initializeApp() {
   ensureWeatherAndTypeOptions();
   syncFormButtonLabels();
   updateCalculatedFields();
+
+  const now = new Date();
+  if (routeFilterForm) {
+    routeFilterForm.elements.year.value = String(now.getFullYear());
+    routeFilterForm.elements.month.value = String(now.getMonth());
+  }
 
   try {
     await refreshAndRender();

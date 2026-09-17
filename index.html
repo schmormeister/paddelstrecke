@@ -58,12 +58,18 @@
         </div>
         <div class="hero-stats">
           <div class="stat-card stat-card-routes">
-            <span id="tourCount">0</span>
-            <p>Gespeicherte Strecken</p>
+            <div>
+              <span id="tourCount">0</span>
+              <p>Gespeicherte Strecken</p>
+            </div>
+            <div id="routeTagCloud" class="route-tag-cloud" aria-live="polite"></div>
           </div>
           <div class="stat-card stat-card-waters">
-            <span id="waterCount">0</span>
-            <p>Gewässer in deiner Liste</p>
+            <div>
+              <span id="waterCount">0</span>
+              <p>Gewässer in deiner Liste</p>
+            </div>
+            <div id="waterTagCloud" class="water-tag-cloud" aria-live="polite"></div>
           </div>
         </div>
       </header>
@@ -199,7 +205,7 @@
             </div>
           </form>
 
-          <div class="table-wrap">
+          <div class="table-wrap water-table-header-wrap">
             <table>
               <thead>
                 <tr>
@@ -210,8 +216,17 @@
                   <th></th>
                 </tr>
               </thead>
+            </table>
+          </div>
+
+          <div id="waterTableWrap" class="table-wrap water-table-wrap">
+            <table>
               <tbody id="waterTableBody"></tbody>
             </table>
+          </div>
+
+          <div class="table-actions">
+            <button id="waterTableToggle" type="button" class="secondary" data-toggle-water-table hidden>alle anzeigen</button>
           </div>
         </section>
 
@@ -247,10 +262,29 @@
               </select>
             </label>
 
+            <label>
+              <span>Jahr</span>
+              <select name="year">
+                <option value="">Alle Jahre</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Monat</span>
+              <select name="month">
+                <option value="">Alle Monate</option>
+              </select>
+            </label>
+
             <div class="filter-actions">
               <button type="reset" class="secondary">Filter zurücksetzen</button>
             </div>
           </form>
+
+          <div class="route-summary" aria-live="polite">
+            <span>Gesamtdistanz</span>
+            <strong id="routeDistanceTotal">0,0 km</strong>
+          </div>
 
           <div class="table-wrap">
             <table>
